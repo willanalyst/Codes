@@ -1,0 +1,76 @@
+import smtplib
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import pandas as pd
+import datetime as dt
+
+SIGNATURE_IMG_PATH = './PNG da assinatura'
+EXCEL_FILE_PATH = 'Contas a Receber.xlsx'
+SMTP_HOST = 'smtp.office365.com'
+SMTP_PORT = 587
+SMTP_LOGIN = 'seuemail@seuprovedor.com'
+SMTP_PASSWORD = 'suasenha'
+EMAIL_SUBJECT = 'Pagamento Em Aberto'
+ASSISTANCE_EMAIL = 'tecobreiautomaticamentecompython@gmail.com'
+
+
+def read_data_from_excel(file_path):
+    return pd.read_excel(file_path)
+
+
+def filter_debtors(data):
+    today = dt.datetime.now()
+    is_owing = data['Status'] == 'Em aberto'
+    is_past_due = data['DtPrevPagamento'] < today
+    return data[is_owing & is_past_due]
+
+
+def setup_smtp_server(host, port, login, password):
+    server = smtplib.SMTP(host, port)
+    server.ehlo()
+    server.starttls()
+    server.login(login, password)
+    return server
+
+
+def send_emails_to_debtors(data, server, login):
+    for _, debtor in data.iterrows():
+        msg = create_email_message(debtor, login)
+        server.sendmail(login, debtor['E-mail'], msg.as_string())
+
+
+def create_email_message(debtor, login):
+    msg = MIMEMultipart()
+    msg['From'] = login
+    msg['To'] = debtor['E-mail']
+    msg['Subject'] = EMAIL_SUBJECT
+    msg_body = f"""
+    <p>Olá {debtor["Nome"]}</p>
+    <p>Verificamos um atraso no pagamento referente a NF {debtor["NF"]} com vencimento em {debtor['DtPrevPagamento']} e valor total de R${debtor["Valor em aberto"]:.2f}.
+    Gostaríamos de verificar se há algum problema que necessite de auxílio de nossa equipe.</p>
+    <p> Em caso de dúvidas, é só entrar em contato com nosso time através do e-mail {ASSISTANCE_EMAIL}</p>
+    <p></p> 
+    <p> Atenciosamente,</p>
+    <img src="cid:image1">
+    """
+    msg.attach(MIMEText(msg_body, 'html'))
+
+    with open(SIGNATURE_IMG_PATH, 'rb') as fp:
+        msg_image = MIMEImage(fp.read())
+        msg_image.add_header('Content-ID', '<image1>')
+        msg.attach(msg_image)
+
+    return msg
+
+
+def main():
+    data = read_data_from_excel(EXCEL_FILE_PATH)
+    debtors_data = filter_debtors(data)
+
+    with setup_smtp_server(SMTP_HOST, SMTP_PORT, SMTP_LOGIN, SMTP_PASSWORD) as server:
+        send_emails_to_debtors(debtors_data, server, SMTP_LOGIN)
+
+
+if __name__ == '__main__':
+    main()
